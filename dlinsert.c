@@ -64,7 +64,7 @@ static struct option long_options[] = {
 };
 
 __attribute__((noreturn)) void usage(void) {
-	printf("Usage: insert_dylib dylib_path binary_path [new_binary_path]\n");
+	printf("Usage: dlinsert <dylib> <binary> [output]\n");
 
 	printf("Option flags:");
 
