@@ -57,24 +57,20 @@ static struct option long_options[] = {
 	{"inplace",          no_argument, &inplace_flag,   true},
 	{"weak",             no_argument, &weak_flag,      true},
 	{"overwrite",        no_argument, &overwrite_flag, true},
-	{"strip-codesig",    no_argument, &codesig_flag,   1},
-	{"no-strip-codesig", no_argument, &codesig_flag,   2},
-	{"all-yes",          no_argument, &yes_flag,       true},
+	{"unsign",           no_argument, &codesig_flag,   1},
+	{"yes",              no_argument, &yes_flag,       true},
 	{NULL,               0,           NULL,            0}
 };
 
 __attribute__((noreturn)) void usage(void) {
-	printf("Usage: dlinsert <dylib> <binary> [output]\n");
+	printf("%s\n\n", "usage: dlinsert <dylib> <binary> [output]");
 
-	printf("Option flags:");
-
-	struct option *opt = long_options;
-	while(opt->name != NULL) {
-		printf(" --%s", opt->name);
-		opt++;
-	}
-
-	printf("\n");
+	printf("%s\n", "options:");
+	printf("%s\n", "  --inplace      modify the input binary in place");
+	printf("%s\n", "  --weak         insert LC_LOAD_WEAK_DYLIB instead of LC_LOAD_DYLIB");
+	printf("%s\n", "  --overwrite    approve overwriting the input binary");
+	printf("%s\n", "  --unsign       remove the code signature if present");
+	printf("%s\n", "  --yes          automatically agree to all prompts");
 
 	exit(1);
 }
