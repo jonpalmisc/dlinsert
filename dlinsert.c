@@ -67,7 +67,7 @@ void print_usage(void) {
 
 	printf("Usage: dlinsert [flags] path binary [output]\n\n");
 
-	printf("Required arguments\n:");
+	printf("Required arguments:\n");
 	printf("  path      The path to the dylib to load ^1\n");
 	printf("  binary    The binary to modify\n\n");
 
