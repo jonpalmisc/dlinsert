@@ -92,7 +92,7 @@ __attribute__((noreturn)) void usage(void) {
 
 __attribute__((format(printf, 1, 2))) bool ask(const char *format, ...) {
 	char *question;
-	asprintf(&question, "%s [y/n] ", format);
+	asprintf(&question, "%s [Y/N] ", format);
 
 	va_list args;
 	va_start(args, format);
@@ -121,7 +121,7 @@ __attribute__((format(printf, 1, 2))) bool ask(const char *format, ...) {
 				return false;
 				break;
 			default:
-				printf("Please enter y or n: ");
+				printf("Enter Y or N: ");
 		}
 	}
 }
@@ -168,7 +168,7 @@ bool check_load_commands(FILE *f, struct mach_header *mh, size_t header_offset, 
 						return true;
 					}
 
-					if(codesig_flag == 0 && !ask("LC_CODE_SIGNATURE load command found. Remove it?")) {
+					if(codesig_flag == 0 && !ask("A LC_CODE_SIGNATURE command was found. Would you like remove it?")) {
 						return true;
 					}
 
@@ -196,15 +196,15 @@ bool check_load_commands(FILE *f, struct mach_header *mh, size_t header_offset, 
 
 					if(linkedit_32_pos != -1 || linkedit_64_pos != -1) {
 						if(linkedit_fileoff + linkedit_filesize != *slice_size) {
-							fprintf(stderr, "Warning: __LINKEDIT segment is not at the end of the file, so codesign will not work on the patched binary.\n");
+							fprintf(stderr, "Warning: __LINKEDIT not at end of file; output will be unsignable.\n");
 						} else {
 							if(dataoff + datasize != *slice_size) {
-								fprintf(stderr, "Warning: Codesignature is not at the end of __LINKEDIT segment, so codesign will not work on the patched binary.\n");
+								fprintf(stderr, "Warning: Code signature not at end of __LINKEDIT; output will be unsignable.\n");
 							} else {
 								*slice_size -= datasize;
 								//int64_t diff_size = 0;
 								if(symtab_pos == -1) {
-									fprintf(stderr, "Warning: LC_SYMTAB load command not found. codesign might not work on the patched binary.\n");
+									fprintf(stderr, "Warning: Missing LC_SYMTAB command; output might not be signable.\n");
 								} else {
 									fseeko(f, symtab_pos, SEEK_SET);
 									struct symtab_command *symtab = read_load_command(f, symtab_size);
@@ -215,7 +215,7 @@ bool check_load_commands(FILE *f, struct mach_header *mh, size_t header_offset, 
 										symtab->strsize = SWAP32((uint32_t)(strsize - diff_size), mh->magic);
 										fwrite(symtab, symtab_size, 1, f);
 									} else {
-										fprintf(stderr, "Warning: String table doesn't appear right before code signature. codesign might not work on the patched binary. (0x%llx)\n", diff_size);
+										fprintf(stderr, "Warning: String table not immediately before signature; output might not be signable.\n");
 									}
 
 									free(symtab);
@@ -252,7 +252,7 @@ bool check_load_commands(FILE *f, struct mach_header *mh, size_t header_offset, 
 
 					return true;
 				} else {
-					printf("LC_CODE_SIGNATURE is not the last load command, so couldn't remove.\n");
+					printf("Error: Code signature was not last command; removal failed.\n");
 				}
 				break;
 			case LC_LOAD_DYLIB:
@@ -267,7 +267,7 @@ bool check_load_commands(FILE *f, struct mach_header *mh, size_t header_offset, 
 				free(dylib_command);
 
 				if(cmp == 0) {
-					if(!ask("Binary already contains a load command for that dylib. Continue anyway?")) {
+					if(!ask("A load command for the specified path already exists. Continue anyway?")) {
 						return false;
 					}
 				}
@@ -309,7 +309,7 @@ bool insert_dylib(FILE *f, size_t header_offset, const char *dylib_path, off_t *
 	fread(&mh, sizeof(struct mach_header), 1, f);
 
 	if(mh.magic != MH_MAGIC_64 && mh.magic != MH_CIGAM_64 && mh.magic != MH_MAGIC && mh.magic != MH_CIGAM) {
-		printf("Unknown magic: 0x%x\n", mh.magic);
+		printf("Error: Unknown Mach-O header magic. (0x%x)\n", mh.magic);
 		return false;
 	}
 
@@ -355,7 +355,7 @@ bool insert_dylib(FILE *f, size_t header_offset, const char *dylib_path, off_t *
 	}
 
 	if(!empty) {
-		if(!ask("It doesn't seem like there is enough empty space. Continue anyway?")) {
+		if(!ask("Insufficient empty space detected. Continue anyway?")) {
 			return false;
 		}
 	}
@@ -422,7 +422,7 @@ int main(int argc, const char *argv[]) {
 	}
 
 	if(dylib_path[0] != '@' && stat(dylib_path, &s) != 0) {
-		if(!ask("The provided dylib path doesn't exist. Continue anyway?")) {
+		if(!ask("The provided path doesn't exist. Continue anyway?")) {
 			exit(1);
 		}
 	}
@@ -444,7 +444,7 @@ int main(int argc, const char *argv[]) {
 		}
 
 		if(copyfile(binary_path, new_binary_path, NULL, COPYFILE_DATA | COPYFILE_UNLINK)) {
-			printf("Failed to create %s\n", new_binary_path);
+			printf("Error: Failed to create output binary. (%s)\n", new_binary_path);
 			exit(1);
 		}
 
@@ -454,7 +454,7 @@ int main(int argc, const char *argv[]) {
 	FILE *f = fopen(binary_path, "r+");
 
 	if(!f) {
-		printf("Couldn't open file %s\n", binary_path);
+		printf("Error: Failed to open file input binary. (%s)\n", binary_path);
 		exit(1);
 	}
 
@@ -477,7 +477,7 @@ int main(int argc, const char *argv[]) {
 
 			uint32_t nfat_arch = SWAP32(fh.nfat_arch, magic);
 
-			printf("Binary is a fat binary with %d archs.\n", nfat_arch);
+			// printf("Binary is a fat binary with %d archs.\n", nfat_arch);
 
 			struct fat_arch archs[nfat_arch];
 			fread(archs, sizeof(archs), 1, f);
@@ -503,7 +503,7 @@ int main(int argc, const char *argv[]) {
 				off_t slice_size = orig_slice_size;
 				bool r = insert_dylib(f, offset, dylib_path, &slice_size);
 				if(!r) {
-					printf("Failed to add %s to arch #%d!\n", lc_name, i + 1);
+					printf("Error: Failed to add %s to architecture #%d.\n", lc_name, i + 1);
 					fails++;
 				}
 
@@ -525,12 +525,12 @@ int main(int argc, const char *argv[]) {
 			ftruncate(fileno(f), file_size);
 
 			if(fails == 0) {
-				printf("Added %s to all archs in %s\n", lc_name, binary_path);
+				// printf("Added %s to all archs in %s\n", lc_name, binary_path);
 			} else if(fails == nfat_arch) {
-				printf("Failed to add %s to any archs.\n", lc_name);
+				printf("Error: Failed to add %s to any architectures.\n", lc_name);
 				success = false;
 			} else {
-				printf("Added %s to %d/%d archs in %s\n", lc_name, nfat_arch - fails, nfat_arch, binary_path);
+				printf("Warning: Only added %s to %d of %d architectures.\n", lc_name, nfat_arch - fails, nfat_arch);
 			}
 
 			break;
@@ -541,14 +541,14 @@ int main(int argc, const char *argv[]) {
 		case MH_CIGAM:
 			if(insert_dylib(f, 0, dylib_path, &file_size)) {
 				ftruncate(fileno(f), file_size);
-				printf("Added %s to %s\n", lc_name, binary_path);
+				// printf("Added %s to %s\n", lc_name, binary_path);
 			} else {
-				printf("Failed to add %s!\n", lc_name);
+				printf("Error: Failed to add %s.\n", lc_name);
 				success = false;
 			}
 			break;
 		default:
-			printf("Unknown magic: 0x%x\n", magic);
+			printf("Error: Unknown Mach-O header magic. (0x%x)\n", magic);
 			exit(1);
 	}
 
