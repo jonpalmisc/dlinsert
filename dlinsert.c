@@ -63,14 +63,29 @@ static struct option long_options[] = {
 };
 
 __attribute__((noreturn)) void usage(void) {
-	printf("%s\n\n", "usage: dlinsert <dylib> <binary> [output]");
+	printf("%s\n", "Insert LC_LOAD_DYLIB commands into existing binaries.");
+	printf("\n");
+	printf("%s\n\n", "Usage: dlinsert [flags] path binary [output]");
 
-	printf("%s\n", "options:");
-	printf("%s\n", "  --inplace      modify the input binary in place");
-	printf("%s\n", "  --weak         insert LC_LOAD_WEAK_DYLIB instead of LC_LOAD_DYLIB");
-	printf("%s\n", "  --overwrite    approve overwriting the input binary");
-	printf("%s\n", "  --unsign       remove the code signature if present");
-	printf("%s\n", "  --yes          automatically agree to all prompts");
+	printf("%s\n", "Required arguments:");
+	printf("%s\n", "  path      The path to the dylib to load ^1");
+	printf("%s\n", "  binary    The binary to modify");
+	printf("\n");
+	printf("%s\n", "Optional arguments:");
+	printf("%s\n", "  output    Where to write the output binary ^2");
+	printf("\n");
+	printf("%s\n", "Flags:");
+	printf("%s\n", "  --inplace      Modify the input binary in place");
+	printf("%s\n", "  --weak         Insert LC_LOAD_WEAK_DYLIB instead of LC_LOAD_DYLIB");
+	printf("%s\n", "  --overwrite    Approve overwriting the input binary");
+	printf("%s\n", "  --unsign       Remove the code signature if present");
+	printf("%s\n", "  --yes          Automatically agree to all prompts");
+	printf("\n");
+	printf("%s\n", "^1: The path argument MUST be either an absolute path or a relative path");
+	printf("%s\n", "utilizing @executable_path, @loader_path, or @rpath. Failing to provide a valid");
+	printf("%s\n", "path will cause the produced binary to crash upon startup.");
+	printf("\n");
+	printf("%s\n", "^2: By default, the output is adjacent to the input, with a \"_patched\" suffix.");
 
 	exit(1);
 }
