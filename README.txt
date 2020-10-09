@@ -9,7 +9,8 @@ cleaning up and simplifying the code. Improvements so far include:
   - better user-facing messages, warnings, and errors.
 
 My goals moving forward are to continue to add comments to the code and extract
-chunks of code into functions to reduce repeated or messy code.
+chunks of code into functions to reduce repeated or messy code. See the 1.0.0
+roadmap under the projects tab on GitHub.
 
 For more information, see the original project:
 
