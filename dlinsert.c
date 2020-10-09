@@ -47,22 +47,22 @@ void fmemmove(FILE *f, off_t dst, off_t src, size_t len) {
 	}
 }
 
-int inplace_flag = false;
-int weak_flag = false;
-int overwrite_flag = false;
-int codesig_flag = 0;
-int yes_flag = false;
+int flag_inplace = false;
+int flag_weak = false;
+int flag_overwrite = false;
+int flag_unsign = 0;
+int flag_auto_agree = false;
 
-static struct option long_options[] = {
-	{"inplace",          no_argument, &inplace_flag,   true},
-	{"weak",             no_argument, &weak_flag,      true},
-	{"overwrite",        no_argument, &overwrite_flag, true},
-	{"unsign",           no_argument, &codesig_flag,   1},
-	{"yes",              no_argument, &yes_flag,       true},
+static struct option opts[] = {
+	{"inplace",          no_argument, &flag_inplace,   true},
+	{"weak",             no_argument, &flag_weak,      true},
+	{"overwrite",        no_argument, &flag_overwrite, true},
+	{"unsign",           no_argument, &flag_unsign,   1},
+	{"yes",              no_argument, &flag_auto_agree,       true},
 	{NULL,               0,           NULL,            0}
 };
 
-__attribute__((noreturn)) void usage(void) {
+void print_usage(void) {
 	printf("%s\n", "Insert LC_LOAD_DYLIB commands into existing binaries.");
 	printf("\n");
 	printf("%s\n\n", "Usage: dlinsert [flags] path binary [output]");
@@ -86,11 +86,10 @@ __attribute__((noreturn)) void usage(void) {
 	printf("%s\n", "path will cause the produced binary to crash upon startup.");
 	printf("\n");
 	printf("%s\n", "^2: By default, the output is adjacent to the input, with a \"_patched\" suffix.");
-
-	exit(1);
 }
 
-__attribute__((format(printf, 1, 2))) bool ask(const char *format, ...) {
+__attribute__((format(printf, 1, 2)))
+bool prompt_user(const char *format, ...) {
 	char *question;
 	asprintf(&question, "%s [Y/N] ", format);
 
@@ -101,10 +100,13 @@ __attribute__((format(printf, 1, 2))) bool ask(const char *format, ...) {
 
 	free(question);
 
+	// Continuously prompt the user until we get a valid answer.
 	while(true) {
 		char *line = NULL;
 		size_t size;
-		if(yes_flag) {
+
+		// Automatically agree if the flag is set.
+		if(flag_auto_agree) {
 			puts("y");
 			line = "y";
 		} else {
@@ -164,11 +166,11 @@ bool check_load_commands(FILE *f, struct mach_header *mh, size_t header_offset, 
 		switch(cmd) {
 			case LC_CODE_SIGNATURE:
 				if(i == ncmds - 1) {
-					if(codesig_flag == 2) {
+					if(flag_unsign == 2) {
 						return true;
 					}
 
-					if(codesig_flag == 0 && !ask("A LC_CODE_SIGNATURE command was found. Would you like remove it?")) {
+					if(flag_unsign == 0 && !prompt_user("A LC_CODE_SIGNATURE command was found. Would you like remove it?")) {
 						return true;
 					}
 
@@ -267,7 +269,7 @@ bool check_load_commands(FILE *f, struct mach_header *mh, size_t header_offset, 
 				free(dylib_command);
 
 				if(cmp == 0) {
-					if(!ask("A load command for the specified path already exists. Continue anyway?")) {
+					if(!prompt_user("A load command for the specified path already exists. Continue anyway?")) {
 						return false;
 					}
 				}
@@ -329,7 +331,7 @@ bool insert_dylib(FILE *f, size_t header_offset, const char *dylib_path, off_t *
 	uint32_t cmdsize = (uint32_t)(sizeof(struct dylib_command) + dylib_path_size);
 
 	struct dylib_command dylib_command = {
-		.cmd = SWAP32(weak_flag? LC_LOAD_WEAK_DYLIB: LC_LOAD_DYLIB, mh.magic),
+		.cmd = SWAP32(flag_weak? LC_LOAD_WEAK_DYLIB: LC_LOAD_DYLIB, mh.magic),
 		.cmdsize = SWAP32(cmdsize, mh.magic),
 		.dylib = {
 			.name = SWAP32(sizeof(struct dylib_command), mh.magic),
@@ -355,7 +357,7 @@ bool insert_dylib(FILE *f, size_t header_offset, const char *dylib_path, off_t *
 	}
 
 	if(!empty) {
-		if(!ask("Insufficient empty space detected. Continue anyway?")) {
+		if(!prompt_user("Insufficient empty space detected. Continue anyway?")) {
 			return false;
 		}
 	}
@@ -380,11 +382,17 @@ bool insert_dylib(FILE *f, size_t header_offset, const char *dylib_path, off_t *
 	return true;
 }
 
+// Checks if a file exists.
+bool file_exists(const char *p) {
+	struct stat s;
+	return stat(p, &s) != 0;
+}
+
 int main(int argc, const char *argv[]) {
 	while(true) {
 		int option_index = 0;
 
-		int c = getopt_long(argc, (char *const *)argv, "", long_options, &option_index);
+		int c = getopt_long(argc, (char *const *)argv, "", opts, &option_index);
 
 		if(c == -1) {
 			break;
@@ -394,7 +402,8 @@ int main(int argc, const char *argv[]) {
 			case 0:
 				break;
 			case '?':
-				usage();
+				print_usage();
+				exit(1);
 				break;
 			default:
 				abort();
@@ -405,30 +414,33 @@ int main(int argc, const char *argv[]) {
 	argv = &argv[optind - 1];
 	argc -= optind - 1;
 
+	// Show the usage and quit if we received invalid arguments.
 	if(argc < 3 || argc > 4) {
-		usage();
+		print_usage();
+		exit(1);
 	}
 
-	const char *lc_name = weak_flag? "LC_LOAD_WEAK_DYLIB": "LC_LOAD_DYLIB";
+	const char *lc_name = flag_weak ? "LC_LOAD_WEAK_DYLIB": "LC_LOAD_DYLIB";
 
 	const char *dylib_path = argv[1];
 	const char *binary_path = argv[2];
 
-	struct stat s;
-
-	if(stat(binary_path, &s) != 0) {
-		perror(binary_path);
+	// Verify the input file exists.
+	if (!file_exists(binary_path)) {
+		printf("Error: Could not find input binary. (%s)\n", binary_path);
 		exit(1);
 	}
 
-	if(dylib_path[0] != '@' && stat(dylib_path, &s) != 0) {
-		if(!ask("The provided path doesn't exist. Continue anyway?")) {
+	// Verify the dylib path exists. (Currently only checks absolute paths.)
+	// TODO: Add verification for relative paths.
+	if(dylib_path[0] != '@' && !file_exists(dylib_path)) {
+		if(!prompt_user("The provided path doesn't exist. Continue anyway?")) {
 			exit(1);
 		}
 	}
 
 	bool binary_path_was_malloced = false;
-	if(!inplace_flag) {
+	if(!flag_inplace) {
 		char *new_binary_path;
 		if(argc == 4) {
 			new_binary_path = (char *)argv[3];
@@ -437,8 +449,8 @@ int main(int argc, const char *argv[]) {
 			binary_path_was_malloced = true;
 		}
 
-		if(!overwrite_flag && stat(new_binary_path, &s) == 0) {
-			if(!ask("%s already exists. Overwrite it?", new_binary_path)) {
+		if(!flag_overwrite && file_exists(binary_path)) {
+			if(!prompt_user("%s already exists. Overwrite it?", new_binary_path)) {
 				exit(1);
 			}
 		}
@@ -555,7 +567,7 @@ int main(int argc, const char *argv[]) {
 	fclose(f);
 
 	if(!success) {
-		if(!inplace_flag) {
+		if(!flag_inplace) {
 			unlink(binary_path);
 		}
 		exit(1);
