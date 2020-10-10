@@ -12,7 +12,6 @@
 #include <mach-o/loader.h>
 
 #include <sys/param.h>
-#include <sys/stat.h>
 
 #include "fileutils.h"
 
@@ -361,12 +360,6 @@ bool insert_dylib(FILE* f, size_t header_offset, const char* dylib_path, off_t* 
     return true;
 }
 
-// Checks if a file exists.
-bool file_exists(const char* p)
-{
-    struct stat s;
-    return stat(p, &s) != 0;
-}
 
 int main(int argc, const char* argv[])
 {

@@ -1,6 +1,7 @@
 #include "fileutils.h"
 
 #include <sys/param.h>
+#include <sys/stat.h>
 
 #define BUFSIZE 512
 
@@ -37,4 +38,9 @@ size_t fpeek(void* restrict ptr, size_t size, size_t nitems, FILE* restrict stre
     size_t result = fread(ptr, size, nitems, stream);
     fseeko(stream, pos, SEEK_SET);
     return result;
+}
+
+int file_exists(const char *p) {
+  struct stat s;
+  return stat(p, &s) == 0;
 }
