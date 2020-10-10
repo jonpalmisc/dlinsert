@@ -14,6 +14,8 @@
 #include <sys/param.h>
 #include <sys/stat.h>
 
+#include "fileutils.h"
+
 #define IS_64_BIT(x) ((x) == MH_MAGIC_64 || (x) == MH_CIGAM_64)
 #define IS_LITTLE_ENDIAN(x) ((x) == FAT_CIGAM || (x) == MH_CIGAM_64 || (x) == MH_CIGAM)
 #define SWAP32(x, magic) (IS_LITTLE_ENDIAN(magic) ? OSSwapInt32(x) : (x))
@@ -22,35 +24,6 @@
 #define ROUND_UP(x, y) (((x) + (y)-1) & -(y))
 
 #define ABSDIFF(x, y) ((x) > (y) ? (uintmax_t)(x) - (uintmax_t)(y) : (uintmax_t)(y) - (uintmax_t)(x))
-
-#define BUFSIZE 512
-
-void fbzero(FILE* f, off_t offset, size_t len)
-{
-    static unsigned char zeros[BUFSIZE] = { 0 };
-    fseeko(f, offset, SEEK_SET);
-    while (len != 0) {
-        size_t size = MIN(len, sizeof(zeros));
-        fwrite(zeros, size, 1, f);
-        len -= size;
-    }
-}
-
-void fmemmove(FILE* f, off_t dst, off_t src, size_t len)
-{
-    static unsigned char buf[BUFSIZE];
-    while (len != 0) {
-        size_t size = MIN(len, sizeof(buf));
-        fseeko(f, src, SEEK_SET);
-        fread(&buf, size, 1, f);
-        fseeko(f, dst, SEEK_SET);
-        fwrite(buf, size, 1, f);
-
-        len -= size;
-        src += size;
-        dst += size;
-    }
-}
 
 struct flags {
     int inplace;
@@ -136,14 +109,6 @@ __attribute__((format(printf, 1, 2))) bool prompt_user(const char* format, ...)
             printf("Enter Y or N: ");
         }
     }
-}
-
-size_t fpeek(void* restrict ptr, size_t size, size_t nitems, FILE* restrict stream)
-{
-    off_t pos = ftello(stream);
-    size_t result = fread(ptr, size, nitems, stream);
-    fseeko(stream, pos, SEEK_SET);
-    return result;
 }
 
 void* read_load_command(FILE* f, uint32_t cmdsize)
