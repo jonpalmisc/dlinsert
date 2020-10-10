@@ -47,18 +47,22 @@ void fmemmove(FILE *f, off_t dst, off_t src, size_t len) {
 	}
 }
 
-int flag_inplace = false;
-int flag_weak = false;
-int flag_overwrite = false;
-int flag_unsign = 0;
-int flag_auto_agree = false;
+struct flags {
+	int inplace;
+	int weak;
+	int overwrite;
+	int unsign;
+	int agree;
+};
+
+struct flags flags;
 
 static struct option opts[] = {
-	{"inplace",          no_argument, &flag_inplace,   true},
-	{"weak",             no_argument, &flag_weak,      true},
-	{"overwrite",        no_argument, &flag_overwrite, true},
-	{"unsign",           no_argument, &flag_unsign,   1},
-	{"yes",              no_argument, &flag_auto_agree,       true},
+	{"inplace",          no_argument, &flags.inplace,   true},
+	{"weak",             no_argument, &flags.weak,      true},
+	{"overwrite",        no_argument, &flags.overwrite, true},
+	{"unsign",           no_argument, &flags.unsign,   1},
+	{"yes",              no_argument, &flags.agree,       true},
 	{NULL,               0,           NULL,            0}
 };
 
@@ -106,7 +110,7 @@ bool prompt_user(const char *format, ...) {
 		size_t size;
 
 		// Automatically agree if the flag is set.
-		if(flag_auto_agree) {
+		if(flags.agree) {
 			puts("y");
 			line = "y";
 		} else {
@@ -166,11 +170,11 @@ bool check_load_commands(FILE *f, struct mach_header *mh, size_t header_offset, 
 		switch(cmd) {
 			case LC_CODE_SIGNATURE:
 				if(i == ncmds - 1) {
-					if(flag_unsign == 2) {
+					if(flags.unsign == 2) {
 						return true;
 					}
 
-					if(flag_unsign == 0 && !prompt_user("A LC_CODE_SIGNATURE command was found. Would you like remove it?")) {
+					if(flags.unsign == 0 && !prompt_user("A LC_CODE_SIGNATURE command was found. Would you like remove it?")) {
 						return true;
 					}
 
@@ -331,7 +335,7 @@ bool insert_dylib(FILE *f, size_t header_offset, const char *dylib_path, off_t *
 	uint32_t cmdsize = (uint32_t)(sizeof(struct dylib_command) + dylib_path_size);
 
 	struct dylib_command dylib_command = {
-		.cmd = SWAP32(flag_weak? LC_LOAD_WEAK_DYLIB: LC_LOAD_DYLIB, mh.magic),
+		.cmd = SWAP32(flags.weak ? LC_LOAD_WEAK_DYLIB: LC_LOAD_DYLIB, mh.magic),
 		.cmdsize = SWAP32(cmdsize, mh.magic),
 		.dylib = {
 			.name = SWAP32(sizeof(struct dylib_command), mh.magic),
@@ -420,7 +424,7 @@ int main(int argc, const char *argv[]) {
 		exit(1);
 	}
 
-	const char *lc_name = flag_weak ? "LC_LOAD_WEAK_DYLIB": "LC_LOAD_DYLIB";
+	const char *lc_name = flags.weak ? "LC_LOAD_WEAK_DYLIB": "LC_LOAD_DYLIB";
 
 	const char *dylib_path = argv[1];
 	const char *binary_path = argv[2];
@@ -440,7 +444,7 @@ int main(int argc, const char *argv[]) {
 	}
 
 	bool binary_path_was_malloced = false;
-	if(!flag_inplace) {
+	if(!flags.inplace) {
 		char *new_binary_path;
 		if(argc == 4) {
 			new_binary_path = (char *)argv[3];
@@ -449,7 +453,7 @@ int main(int argc, const char *argv[]) {
 			binary_path_was_malloced = true;
 		}
 
-		if(!flag_overwrite && file_exists(binary_path)) {
+		if(!flags.overwrite && file_exists(binary_path)) {
 			if(!prompt_user("%s already exists. Overwrite it?", new_binary_path)) {
 				exit(1);
 			}
@@ -567,7 +571,7 @@ int main(int argc, const char *argv[]) {
 	fclose(f);
 
 	if(!success) {
-		if(!flag_inplace) {
+		if(!flags.inplace) {
 			unlink(binary_path);
 		}
 		exit(1);
