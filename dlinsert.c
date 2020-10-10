@@ -57,7 +57,7 @@ struct flags {
 
 struct flags flags;
 
-static struct option opts[] = {
+static struct option flag_map[] = {
 	{"inplace",          no_argument, &flags.inplace,   true},
 	{"weak",             no_argument, &flags.weak,      true},
 	{"overwrite",        no_argument, &flags.overwrite, true},
@@ -393,16 +393,21 @@ bool file_exists(const char *p) {
 }
 
 int main(int argc, const char *argv[]) {
+
+	// Parse flags.
 	while(true) {
-		int option_index = 0;
+		int flag_index = 0;
 
-		int c = getopt_long(argc, (char *const *)argv, "", opts, &option_index);
+		// Get the next flag.
+		int flag = getopt_long(argc, (char *const *)argv, "", flag_map, &flag_index);
 
-		if(c == -1) {
+		// Break if we are out of flags to parse.
+		if(flag == -1) {
 			break;
 		}
 
-		switch(c) {
+		// Handle the current flag accordingly.
+		switch(flag) {
 			case 0:
 				break;
 			case '?':
@@ -415,6 +420,7 @@ int main(int argc, const char *argv[]) {
 		}
 	}
 
+	// Reset argv and argc after parsing flags.
 	argv = &argv[optind - 1];
 	argc -= optind - 1;
 
@@ -424,7 +430,8 @@ int main(int argc, const char *argv[]) {
 		exit(1);
 	}
 
-	const char *lc_name = flags.weak ? "LC_LOAD_WEAK_DYLIB": "LC_LOAD_DYLIB";
+	// Set our load command type based on our flags.
+	const char *lc_type = flags.weak ? "LC_LOAD_WEAK_DYLIB": "LC_LOAD_DYLIB";
 
 	const char *dylib_path = argv[1];
 	const char *binary_path = argv[2];
@@ -443,60 +450,68 @@ int main(int argc, const char *argv[]) {
 		}
 	}
 
-	bool binary_path_was_malloced = false;
+	// If we allocate new memory for the new binary path, we will need to free
+	// it later, so we must record what happened.
+	bool new_bin_path_allocated = false;
+
 	if(!flags.inplace) {
-		char *new_binary_path;
+		char *new_bin_path;
+
+		// If we have been given an output name, retrieve it, otherwise set it
+		// to the input with a "_patched" suffix.
 		if(argc == 4) {
-			new_binary_path = (char *)argv[3];
+			new_bin_path = (char *)argv[3];
 		} else {
-			asprintf(&new_binary_path, "%s_patched", binary_path);
-			binary_path_was_malloced = true;
+			asprintf(&new_bin_path, "%s_patched", binary_path);
+			new_bin_path_allocated = true;
 		}
 
+		// Confirm overwrites if the output file already exists.
 		if(!flags.overwrite && file_exists(binary_path)) {
-			if(!prompt_user("%s already exists. Overwrite it?", new_binary_path)) {
+			if(!prompt_user("A file at \"%s\" already exists. Overwrite it?", new_bin_path)) {
 				exit(1);
 			}
 		}
 
-		if(copyfile(binary_path, new_binary_path, NULL, COPYFILE_DATA | COPYFILE_UNLINK)) {
-			printf("Error: Failed to create output binary. (%s)\n", new_binary_path);
+		// Attempt to make a copy of the input to work on.
+		if(copyfile(binary_path, new_bin_path, NULL, COPYFILE_DATA | COPYFILE_UNLINK)) {
+			printf("Error: Failed to create output binary. (%s)\n", new_bin_path);
 			exit(1);
 		}
 
-		binary_path = new_binary_path;
+		binary_path = new_bin_path;
 	}
 
-	FILE *f = fopen(binary_path, "r+");
-
-	if(!f) {
+	// Attempt to open the input binary.
+	FILE *input_file = fopen(binary_path, "r+");
+	if(!input_file) {
 		printf("Error: Failed to open file input binary. (%s)\n", binary_path);
 		exit(1);
 	}
 
 	bool success = true;
 
-	fseeko(f, 0, SEEK_END);
-	off_t file_size = ftello(f);
-	rewind(f);
+	// Get the input file's size.
+	fseeko(input_file, 0, SEEK_END);
+	off_t file_size = ftello(input_file);
+	rewind(input_file);
 
+	// Get the input file magic.
 	uint32_t magic;
-	fread(&magic, sizeof(uint32_t), 1, f);
+	fread(&magic, sizeof(uint32_t), 1, input_file);
 
 	switch(magic) {
 		case FAT_MAGIC:
 		case FAT_CIGAM: {
-			fseeko(f, 0, SEEK_SET);
+			fseeko(input_file, 0, SEEK_SET);
 
 			struct fat_header fh;
-			fread(&fh, sizeof(fh), 1, f);
+			fread(&fh, sizeof(fh), 1, input_file);
 
 			uint32_t nfat_arch = SWAP32(fh.nfat_arch, magic);
 
-			// printf("Binary is a fat binary with %d archs.\n", nfat_arch);
-
 			struct fat_arch archs[nfat_arch];
-			fread(archs, sizeof(archs), 1, f);
+			fread(archs, sizeof(archs), 1, input_file);
 
 			int fails = 0;
 
@@ -510,21 +525,21 @@ int main(int argc, const char *argv[]) {
 				off_t orig_slice_size = SWAP32(archs[i].size, magic);
 				offset = ROUND_UP(offset, 1 << SWAP32(archs[i].align, magic));
 				if(orig_offset != offset) {
-					fmemmove(f, offset, orig_offset, orig_slice_size);
-					fbzero(f, MIN(offset, orig_offset) + orig_slice_size, ABSDIFF(offset, orig_offset));
+					fmemmove(input_file, offset, orig_offset, orig_slice_size);
+					fbzero(input_file, MIN(offset, orig_offset) + orig_slice_size, ABSDIFF(offset, orig_offset));
 
 					archs[i].offset = SWAP32(offset, magic);
 				}
 
 				off_t slice_size = orig_slice_size;
-				bool r = insert_dylib(f, offset, dylib_path, &slice_size);
+				bool r = insert_dylib(input_file, offset, dylib_path, &slice_size);
 				if(!r) {
-					printf("Error: Failed to add %s to architecture #%d.\n", lc_name, i + 1);
+					printf("Error: Failed to add %s to architecture #%d.\n", lc_type, i + 1);
 					fails++;
 				}
 
 				if(slice_size < orig_slice_size && i < nfat_arch - 1) {
-					fbzero(f, offset + slice_size, orig_slice_size - slice_size);
+					fbzero(input_file, offset + slice_size, orig_slice_size - slice_size);
 				}
 
 				file_size = offset + slice_size;
@@ -532,21 +547,19 @@ int main(int argc, const char *argv[]) {
 				archs[i].size = SWAP32((uint32_t)slice_size, magic);
 			}
 
-			rewind(f);
-			fwrite(&fh, sizeof(fh), 1, f);
-			fwrite(archs, sizeof(archs), 1, f);
+			rewind(input_file);
+			fwrite(&fh, sizeof(fh), 1, input_file);
+			fwrite(archs, sizeof(archs), 1, input_file);
 
 			// We need to flush before truncating
-			fflush(f);
-			ftruncate(fileno(f), file_size);
+			fflush(input_file);
+			ftruncate(fileno(input_file), file_size);
 
-			if(fails == 0) {
-				// printf("Added %s to all archs in %s\n", lc_name, binary_path);
-			} else if(fails == nfat_arch) {
-				printf("Error: Failed to add %s to any architectures.\n", lc_name);
+			if(fails == nfat_arch) {
+				printf("Error: Failed to add %s to any architectures.\n", lc_type);
 				success = false;
 			} else {
-				printf("Warning: Only added %s to %d of %d architectures.\n", lc_name, nfat_arch - fails, nfat_arch);
+				printf("Warning: Only added %s to %d of %d architectures.\n", lc_type, nfat_arch - fails, nfat_arch);
 			}
 
 			break;
@@ -555,11 +568,11 @@ int main(int argc, const char *argv[]) {
 		case MH_CIGAM_64:
 		case MH_MAGIC:
 		case MH_CIGAM:
-			if(insert_dylib(f, 0, dylib_path, &file_size)) {
-				ftruncate(fileno(f), file_size);
+			if(insert_dylib(input_file, 0, dylib_path, &file_size)) {
+				ftruncate(fileno(input_file), file_size);
 				// printf("Added %s to %s\n", lc_name, binary_path);
 			} else {
-				printf("Error: Failed to add %s.\n", lc_name);
+				printf("Error: Failed to add %s.\n", lc_type);
 				success = false;
 			}
 			break;
@@ -568,7 +581,7 @@ int main(int argc, const char *argv[]) {
 			exit(1);
 	}
 
-	fclose(f);
+	fclose(input_file);
 
 	if(!success) {
 		if(!flags.inplace) {
@@ -577,7 +590,7 @@ int main(int argc, const char *argv[]) {
 		exit(1);
 	}
 
-	if(binary_path_was_malloced) {
+	if(new_bin_path_allocated) {
 		free((void *)binary_path);
 	}
 
