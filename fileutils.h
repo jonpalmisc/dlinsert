@@ -3,9 +3,9 @@
 
 #include <stdio.h>
 
-void fbzero(FILE* f, off_t offset, size_t len);
-void fmemmove(FILE* f, off_t dst, off_t src, size_t len);
-size_t fpeek(void* restrict ptr, size_t size, size_t nitems, FILE* restrict stream);
+void fbzero(FILE*, off_t start, size_t len);
+void fmemmove(FILE*, off_t dest, off_t src, size_t len);
+size_t fpeek(void* restrict ptr, size_t size, size_t count, FILE* restrict);
 
 int file_exists(const char *p);
 

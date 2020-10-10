@@ -3,40 +3,50 @@
 #include <sys/param.h>
 #include <sys/stat.h>
 
-#define BUFSIZE 512
+#define BUFFER_SIZE 512
 
-void fbzero(FILE* f, off_t offset, size_t len)
+void fbzero(FILE* f, off_t start, size_t len)
 {
-    static unsigned char zeros[BUFSIZE] = { 0 };
-    fseeko(f, offset, SEEK_SET);
+    static unsigned char zb[BUFFER_SIZE] = { 0 };
+
+    fseeko(f, start, SEEK_SET);
+
     while (len != 0) {
-        size_t size = MIN(len, sizeof(zeros));
-        fwrite(zeros, size, 1, f);
+        size_t size = MIN(len, sizeof(zb));
+        fwrite(zb, size, 1, f);
+
         len -= size;
     }
 }
 
-void fmemmove(FILE* f, off_t dst, off_t src, size_t len)
+void fmemmove(FILE* f, off_t dest, off_t src, size_t len)
 {
-    static unsigned char buf[BUFSIZE];
+      // Allocate a transfer buffer.
+    static unsigned char tb[BUFFER_SIZE];
+
     while (len != 0) {
-        size_t size = MIN(len, sizeof(buf));
+        size_t size = MIN(len, sizeof(tb));
+
+        // Read the source buffer.
         fseeko(f, src, SEEK_SET);
-        fread(&buf, size, 1, f);
-        fseeko(f, dst, SEEK_SET);
-        fwrite(buf, size, 1, f);
+        fread(&tb, size, 1, f);
+
+        // Write the transfer buffer to the destination.
+        fseeko(f, dest, SEEK_SET);
+        fwrite(tb, size, 1, f);
 
         len -= size;
         src += size;
-        dst += size;
+        dest += size;
     }
 }
 
-size_t fpeek(void* restrict ptr, size_t size, size_t nitems, FILE* restrict stream)
+size_t fpeek(void* restrict ptr, size_t size, size_t count, FILE* restrict stream)
 {
     off_t pos = ftello(stream);
-    size_t result = fread(ptr, size, nitems, stream);
+    size_t result = fread(ptr, size, count, stream);
     fseeko(stream, pos, SEEK_SET);
+
     return result;
 }
 
